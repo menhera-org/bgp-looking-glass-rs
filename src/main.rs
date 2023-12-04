@@ -98,7 +98,7 @@ async fn handler_api_v1_traceroute(
     let ping = process::Command::new("traceroute")
         .arg("-q1")
         .arg("-w1")
-        .arg("-m16")
+        .arg("-m30")
         .arg("-A")
         .arg(&host)
         .output()
