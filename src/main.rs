@@ -85,7 +85,6 @@ async fn handler_api_v1_ping(
     };
 
     if let Some(vrf_name) = get_vrf_name() {
-        let vrf_name = format!("vrf {}", vrf_name);
         let ping = process::Command::new("ping")
             .arg("-c3")
             .arg("-I")
@@ -124,7 +123,6 @@ async fn handler_api_v1_traceroute(
     };
 
     if let Some(vrf_name) = get_vrf_name() {
-        let vrf_name = format!("vrf {}", vrf_name);
         let traceroute = process::Command::new("traceroute")
             .arg("-q1")
             .arg("-w1")
