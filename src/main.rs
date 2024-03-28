@@ -28,6 +28,17 @@ use tower_http::cors::{
 static RESPONSE_HEADER_CSP: &str = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';";
 
 
+fn get_vrf_name() -> Option<String> {
+    let vrf_name = env::var("VRF_NAME").ok();
+    if let Some(vrf_name) = vrf_name {
+        if !vrf_name.is_empty() {
+            return Some(vrf_name);
+        }
+    }
+
+    None
+}
+
 async fn handler_404() -> impl IntoResponse {
     (
         StatusCode::NOT_FOUND,
@@ -73,6 +84,23 @@ async fn handler_api_v1_ping(
         return make_error_response("Missing host parameter").into_response();
     };
 
+    if let Some(vrf_name) = get_vrf_name() {
+        let vrf_name = format!("vrf {}", vrf_name);
+        let ping = process::Command::new("ping")
+            .arg("-c3")
+            .arg("-I")
+            .arg(&vrf_name)
+            .arg(&host)
+            .output()
+            .await;
+
+        if let Ok(output) = ping {
+            return make_output_response(output).into_response();
+        }
+
+        return make_error_response("Failed to execute ping").into_response();
+    }
+
     let ping = process::Command::new("ping")
         .arg("-c3")
         .arg(&host)
@@ -95,7 +123,27 @@ async fn handler_api_v1_traceroute(
         return make_error_response("Missing host parameter").into_response();
     };
 
-    let ping = process::Command::new("traceroute")
+    if let Some(vrf_name) = get_vrf_name() {
+        let vrf_name = format!("vrf {}", vrf_name);
+        let traceroute = process::Command::new("traceroute")
+            .arg("-q1")
+            .arg("-w1")
+            .arg("-m30")
+            .arg("-A")
+            .arg("-i")
+            .arg(&vrf_name)
+            .arg(&host)
+            .output()
+            .await;
+
+        if let Ok(output) = traceroute {
+            return make_output_response(output).into_response();
+        }
+
+        return make_error_response("Failed to execute traceroute").into_response();
+    }
+
+    let traceroute = process::Command::new("traceroute")
         .arg("-q1")
         .arg("-w1")
         .arg("-m30")
@@ -104,7 +152,7 @@ async fn handler_api_v1_traceroute(
         .output()
         .await;
 
-    if let Ok(output) = ping {
+    if let Ok(output) = traceroute {
         return make_output_response(output).into_response();
     }
 
@@ -139,12 +187,23 @@ async fn handler_api_v1_bgp(
         }
     };
 
-    let command = match address {
-        IpAddr::V4(v4_addr) => {
-            format!("sh bgp ipv4 unicast {v4_addr}")
+    let command = if let Some(vrf_name) = get_vrf_name() {
+        match address {
+            IpAddr::V4(v4_addr) => {
+                format!("sh bgp vrf {vrf_name} ipv4 unicast {v4_addr}")
+            }
+            IpAddr::V6(v6_addr) => {
+                format!("sh bgp vrf {vrf_name} ipv6 unicast {v6_addr}")
+            }
         }
-        IpAddr::V6(v6_addr) => {
-            format!("sh bgp ipv6 unicast {v6_addr}")
+    } else {
+        match address {
+            IpAddr::V4(v4_addr) => {
+                format!("sh bgp ipv4 unicast {v4_addr}")
+            }
+            IpAddr::V6(v6_addr) => {
+                format!("sh bgp ipv6 unicast {v6_addr}")
+            }
         }
     };
 
