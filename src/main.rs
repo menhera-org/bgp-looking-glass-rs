@@ -18,10 +18,7 @@ use axum::{
 
 use hyper::Method;
 
-use tower_http::cors::{
-    CorsLayer,
-    AllowOrigin,
-};
+use tower_http::cors::CorsLayer;
 
 
 // const
@@ -233,8 +230,9 @@ async fn main() -> anyhow::Result<()> {
     let addr_string = env::var("LISTEN_ADDR").unwrap_or("".to_string());
     let addr = SocketAddr::from_str(&addr_string).unwrap_or(SocketAddr::from(([127, 0, 0, 1], 7777)));
 
+    let origin = env::var("CORS_ORIGIN").unwrap_or("https://looking-glass.nc.menhera.org".to_string());
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::any())
+        .allow_origin(origin.parse::<hyper::header::HeaderValue>().unwrap())
         .allow_methods(vec![Method::GET]);
 
     // define routes
