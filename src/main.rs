@@ -233,6 +233,7 @@ async fn main() -> anyhow::Result<()> {
     let origin = env::var("CORS_ORIGIN").unwrap_or("https://looking-glass.nc.menhera.org".to_string());
     let cors = CorsLayer::new()
         .allow_origin(origin.parse::<hyper::header::HeaderValue>().unwrap())
+        .allow_credentials(true)
         .allow_methods(vec![Method::GET]);
 
     // define routes
