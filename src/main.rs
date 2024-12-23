@@ -73,6 +73,21 @@ fn make_output_response(output: std::process::Output) -> impl IntoResponse {
     })).into_response()
 }
 
+fn validate_host(host: &str) -> Result<String, String> {
+    let host = if let Ok(ip) = std::net::IpAddr::from_str(host) {
+        ip.to_string()
+    } else {
+        let host = if let Ok(host) = menhera_inet::dns::DnsHostname::new(host) {
+            host
+        } else {
+            return Err("Malformed host".to_string());
+        };
+        host.to_string()
+    };
+
+    Ok(host)
+}
+
 async fn handler_api_v1_ping(
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
@@ -82,13 +97,10 @@ async fn handler_api_v1_ping(
         return make_error_response("Missing host parameter").into_response();
     };
 
-    let host = if let Ok(host) = menhera_inet::dns::DnsHostname::new(host) {
-        host
-    } else {
-        return make_error_response("Malformed host").into_response();
+    let host = match validate_host(host) {
+        Ok(host) => host,
+        Err(err) => return make_error_response(&err).into_response(),
     };
-
-    let host = host.to_string();
 
     if let Some(vrf_name) = get_vrf_name() {
         let ping = process::Command::new("ping")
@@ -128,13 +140,10 @@ async fn handler_api_v1_traceroute(
         return make_error_response("Missing host parameter").into_response();
     };
 
-    let host = if let Ok(host) = menhera_inet::dns::DnsHostname::new(host) {
-        host
-    } else {
-        return make_error_response("Malformed host").into_response();
+    let host = match validate_host(host) {
+        Ok(host) => host,
+        Err(err) => return make_error_response(&err).into_response(),
     };
-
-    let host = host.to_string();
 
     if let Some(vrf_name) = get_vrf_name() {
         let traceroute = process::Command::new("traceroute")
@@ -184,13 +193,10 @@ async fn handler_api_v1_mtr(
         return make_error_response("Missing host parameter").into_response();
     };
 
-    let host = if let Ok(host) = menhera_inet::dns::DnsHostname::new(host) {
-        host
-    } else {
-        return make_error_response("Malformed host").into_response();
+    let host = match validate_host(host) {
+        Ok(host) => host,
+        Err(err) => return make_error_response(&err).into_response(),
     };
-
-    let host = host.to_string();
 
     if let Some(vrf_name) = get_vrf_name() {
         let traceroute = process::Command::new("mtr")
