@@ -125,6 +125,8 @@ async fn handler_api_v1_traceroute(
             .arg("-w1")
             .arg("-m30")
             .arg("-A")
+            .arg("--mtu")
+            .arg("-e")
             .arg("-i")
             .arg(&vrf_name)
             .arg(&host)
@@ -143,6 +145,44 @@ async fn handler_api_v1_traceroute(
         .arg("-w1")
         .arg("-m30")
         .arg("-A")
+        .arg(&host)
+        .output()
+        .await;
+
+    if let Ok(output) = traceroute {
+        return make_output_response(output).into_response();
+    }
+
+    make_error_response("Failed to execute traceroute").into_response()
+}
+
+async fn handler_api_v1_mtr(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let host = if let Some(host) = params.get("host") {
+        host
+    } else {
+        return make_error_response("Missing host parameter").into_response();
+    };
+
+    if let Some(vrf_name) = get_vrf_name() {
+        let traceroute = process::Command::new("mtr")
+            .arg("-zewc3")
+            .arg("-I")
+            .arg(&vrf_name)
+            .arg(&host)
+            .output()
+            .await;
+
+        if let Ok(output) = traceroute {
+            return make_output_response(output).into_response();
+        }
+
+        return make_error_response("Failed to execute traceroute").into_response();
+    }
+
+    let traceroute = process::Command::new("mtr")
+        .arg("-zewc3")
         .arg(&host)
         .output()
         .await;
@@ -240,6 +280,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/api/v1/ping", get(handler_api_v1_ping))
         .route("/api/v1/traceroute", get(handler_api_v1_traceroute))
+        .route("/api/v1/mtr", get(handler_api_v1_mtr))
         .route("/api/v1/bgp", get(handler_api_v1_bgp))
 
         // 404 page
