@@ -17,3 +17,5 @@ env_logger = "0.10"
 axum = "0.6"
 tower = "0.4"
 tower-http = { version = "0.4", features = ["cors"] }
+regex = "1.11.1"
+menhera-inet = "0.1.0"

@@ -1,6 +1,6 @@
 
 use std::{env, collections::HashMap};
-use std::net::{SocketAddr, IpAddr};
+use std::net::SocketAddr;
 use std::str::FromStr;
 
 use tokio::process;
@@ -28,8 +28,9 @@ static RESPONSE_HEADER_CSP: &str = "default-src 'none'; base-uri 'none'; form-ac
 fn get_vrf_name() -> Option<String> {
     let vrf_name = env::var("VRF_NAME").ok();
     if let Some(vrf_name) = vrf_name {
+        let vrf_name = vrf_name.trim();
         if !vrf_name.is_empty() {
-            return Some(vrf_name);
+            return Some(vrf_name.to_owned());
         }
     }
 
@@ -81,6 +82,14 @@ async fn handler_api_v1_ping(
         return make_error_response("Missing host parameter").into_response();
     };
 
+    let host = if let Ok(host) = menhera_inet::dns::DnsHostname::new(host) {
+        host
+    } else {
+        return make_error_response("Malformed host").into_response();
+    };
+
+    let host = host.to_string();
+
     if let Some(vrf_name) = get_vrf_name() {
         let ping = process::Command::new("ping")
             .arg("-c3")
@@ -118,6 +127,14 @@ async fn handler_api_v1_traceroute(
     } else {
         return make_error_response("Missing host parameter").into_response();
     };
+
+    let host = if let Ok(host) = menhera_inet::dns::DnsHostname::new(host) {
+        host
+    } else {
+        return make_error_response("Malformed host").into_response();
+    };
+
+    let host = host.to_string();
 
     if let Some(vrf_name) = get_vrf_name() {
         let traceroute = process::Command::new("traceroute")
@@ -167,6 +184,14 @@ async fn handler_api_v1_mtr(
         return make_error_response("Missing host parameter").into_response();
     };
 
+    let host = if let Ok(host) = menhera_inet::dns::DnsHostname::new(host) {
+        host
+    } else {
+        return make_error_response("Malformed host").into_response();
+    };
+
+    let host = host.to_string();
+
     if let Some(vrf_name) = get_vrf_name() {
         let traceroute = process::Command::new("mtr")
             .arg("-zewc3")
@@ -205,40 +230,27 @@ async fn handler_api_v1_bgp(
         return make_error_response("Missing address parameter").into_response();
     };
 
-    let address = if let Ok(addr) = IpAddr::from_str(address) {
-        addr
+    let target = if let Ok(target) = menhera_inet::inet::InetTarget::from_str(&address) {
+        target
     } else {
         return make_error_response("Malformed address").into_response();
     };
 
-    let address = match address {
-        IpAddr::V4(v4_addr) => {
-            IpAddr::V4(v4_addr)
-        }
-        IpAddr::V6(v6_addr) => {
-            if let Some(v4_addr) = v6_addr.to_ipv4_mapped() {
-                IpAddr::V4(v4_addr)
-            } else {
-                IpAddr::V6(v6_addr)
-            }
-        }
-    };
-
     let command = if let Some(vrf_name) = get_vrf_name() {
-        match address {
-            IpAddr::V4(v4_addr) => {
+        match target {
+            menhera_inet::inet::InetTarget::V4(v4_addr) => {
                 format!("sh bgp vrf {vrf_name} ipv4 unicast {v4_addr}")
             }
-            IpAddr::V6(v6_addr) => {
+            menhera_inet::inet::InetTarget::V6(v6_addr) => {
                 format!("sh bgp vrf {vrf_name} ipv6 unicast {v6_addr}")
             }
         }
     } else {
-        match address {
-            IpAddr::V4(v4_addr) => {
+        match target {
+            menhera_inet::inet::InetTarget::V4(v4_addr) => {
                 format!("sh bgp ipv4 unicast {v4_addr}")
             }
-            IpAddr::V6(v6_addr) => {
+            menhera_inet::inet::InetTarget::V6(v6_addr) => {
                 format!("sh bgp ipv6 unicast {v6_addr}")
             }
         }
