@@ -145,6 +145,8 @@ async fn handler_api_v1_traceroute(
         .arg("-w1")
         .arg("-m30")
         .arg("-A")
+        .arg("--mtu")
+        .arg("-e")
         .arg(&host)
         .output()
         .await;
