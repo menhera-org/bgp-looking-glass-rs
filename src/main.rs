@@ -73,6 +73,16 @@ fn make_output_response(output: std::process::Output) -> impl IntoResponse {
     })).into_response()
 }
 
+fn make_json_response(output: &str) -> impl IntoResponse {
+    Json(serde_json::from_str(output).map(|v: serde_json::Value| serde_json::json!({
+        "error": serde_json::Value::Null,
+        "result": v,
+    })).unwrap_or_else(|_| serde_json::json!({
+        "error": "Failed to parse JSON",
+        "result": serde_json::Value::Null,
+    }))).into_response()
+}
+
 fn validate_host(host: &str) -> Result<String, String> {
     let host = if let Ok(ip) = std::net::IpAddr::from_str(host) {
         ip.to_string()
@@ -275,6 +285,54 @@ async fn handler_api_v1_bgp(
     make_error_response("Failed to execute sh bgp").into_response()
 }
 
+async fn handler_api_v1_bgp_json(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let address = if let Some(addr) = params.get("address") {
+        addr
+    } else {
+        return make_error_response("Missing address parameter").into_response();
+    };
+
+    let target = if let Ok(target) = menhera_inet::inet::InetTarget::from_str(&address) {
+        target
+    } else {
+        return make_error_response("Malformed address").into_response();
+    };
+
+    let command = if let Some(vrf_name) = get_vrf_name() {
+        match target {
+            menhera_inet::inet::InetTarget::V4(v4_addr) => {
+                format!("sh bgp vrf {vrf_name} ipv4 unicast {v4_addr} json")
+            }
+            menhera_inet::inet::InetTarget::V6(v6_addr) => {
+                format!("sh bgp vrf {vrf_name} ipv6 unicast {v6_addr} json")
+            }
+        }
+    } else {
+        match target {
+            menhera_inet::inet::InetTarget::V4(v4_addr) => {
+                format!("sh bgp ipv4 unicast {v4_addr} json")
+            }
+            menhera_inet::inet::InetTarget::V6(v6_addr) => {
+                format!("sh bgp ipv6 unicast {v6_addr} json")
+            }
+        }
+    };
+
+    let vtysh = process::Command::new("vtysh")
+        .arg("-c")
+        .arg(&command)
+        .output()
+        .await;
+
+    if let Ok(output) = vtysh {
+        return make_json_response(&String::from_utf8(output.stdout).unwrap_or("".to_string())).into_response();
+    }
+
+    make_error_response("Failed to execute sh bgp").into_response()
+}
+
 async fn add_global_headers<B>(req: Request<B>, next: Next<B>) -> Response {
     let mut res = next.run(req).await;
     let headers = res.headers_mut();
@@ -302,6 +360,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/traceroute", get(handler_api_v1_traceroute))
         .route("/api/v1/mtr", get(handler_api_v1_mtr))
         .route("/api/v1/bgp", get(handler_api_v1_bgp))
+        .route("/api/v1/bgp/json", get(handler_api_v1_bgp_json))
 
         // 404 page
         .fallback(handler_404)
