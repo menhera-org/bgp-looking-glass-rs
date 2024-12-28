@@ -14,16 +14,32 @@ use axum::{
     Json,
     middleware::Next,
     extract::Query,
+    extract::State,
 };
 
 use hyper::Method;
 
 use tower_http::cors::CorsLayer;
 
+use parking_lot::RwLock;
+
+use std::sync::Arc;
 
 // const
 static RESPONSE_HEADER_CSP: &str = "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';";
 
+#[derive(Debug, Clone, serde::Serialize)]
+struct AsInfo {
+    as_number: u32,
+    as_name: String,
+    as_description: String,
+    as_country: String,
+}
+
+#[derive(Debug, Clone)]
+struct AppState {
+    as_info: Arc<RwLock<HashMap<u32, AsInfo>>>,
+}
 
 fn get_vrf_name() -> Option<String> {
     let vrf_name = env::var("VRF_NAME").ok();
@@ -333,6 +349,32 @@ async fn handler_api_v1_bgp_json(
     make_error_response("Failed to execute sh bgp").into_response()
 }
 
+async fn handler_api_v1_as_info(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let as_number = if let Some(as_number) = params.get("asn") {
+        as_number
+    } else {
+        return make_error_response("Missing as_number parameter").into_response();
+    };
+
+    let as_number = match as_number.parse::<u32>() {
+        Ok(as_number) => as_number,
+        Err(_) => return make_error_response("Invalid as_number").into_response(),
+    };
+
+    let as_info = state.as_info.read();
+    if let Some(as_info) = as_info.get(&as_number) {
+        return Json(serde_json::json!({
+            "error": serde_json::Value::Null,
+            "result": as_info,
+        })).into_response();
+    }
+
+    make_error_response("AS number not found").into_response()
+}
+
 async fn add_global_headers<B>(req: Request<B>, next: Next<B>) -> Response {
     let mut res = next.run(req).await;
     let headers = res.headers_mut();
@@ -354,6 +396,10 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true)
         .allow_methods(vec![Method::GET]);
 
+    let state = AppState {
+        as_info: Arc::new(RwLock::new(HashMap::new())),
+    };
+
     // define routes
     let app = Router::new()
         .route("/api/v1/ping", get(handler_api_v1_ping))
@@ -361,12 +407,71 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/mtr", get(handler_api_v1_mtr))
         .route("/api/v1/bgp", get(handler_api_v1_bgp))
         .route("/api/v1/bgp/json", get(handler_api_v1_bgp_json))
+        .route("/api/v1/as_info", get(handler_api_v1_as_info))
 
         // 404 page
         .fallback(handler_404)
 
         .layer(cors)
-        .layer(axum::middleware::from_fn(add_global_headers));
+        .layer(axum::middleware::from_fn(add_global_headers))
+        .with_state(state.clone());
+
+    tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
+        let asn_txt_url = "https://ftp.ripe.net/ripe/asnames/asn.txt";
+        let sleep_intervals = vec![1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768]; // in seconds
+        loop {
+            interval.tick().await;
+
+            let mut as_info_new = HashMap::new();
+            for i in 0..sleep_intervals.len() {
+                let sleep_interval = sleep_intervals[i];
+                let sleep_interval = std::time::Duration::from_secs(sleep_interval);
+                tokio::time::sleep(sleep_interval).await;
+
+                let response = client.get(asn_txt_url).send().await;
+                if let Ok(response) = response {
+                    let body = response.text().await;
+                    if let Ok(body) = body {
+                        for line in body.lines() {
+                            if line.starts_with("#") {
+                                continue;
+                            }
+
+                            let parts: Vec<&str> = line.splitn(2, ",").collect();
+                            if parts.len() != 2 {
+                                continue;
+                            }
+
+                            let country_code = parts[1].trim();
+                            let parts = parts[0].splitn(3, " ").collect::<Vec<&str>>();
+                            if parts.len() < 2 {
+                                continue;
+                            }
+
+                            let as_name = parts[1].trim();
+                            let as_description = parts[2..].join(" ").trim().to_string();
+
+                            let as_number = parts[0].parse::<u32>();
+                            if let Ok(as_number) = as_number {
+                                as_info_new.insert(as_number, AsInfo {
+                                    as_number: as_number,
+                                    as_name: as_name.to_string(),
+                                    as_description,
+                                    as_country: country_code.to_string(),
+                                });
+                            }
+                        }
+
+                        let mut as_info = state.as_info.write();
+                        *as_info = as_info_new.clone();
+                        break;
+                    }
+                }
+            }
+        }
+    });
 
     // run server
     let server = Server::bind(&addr).serve(app.into_make_service());
