@@ -349,6 +349,78 @@ async fn handler_api_v1_bgp_json(
     make_error_response("Failed to execute sh bgp").into_response()
 }
 
+async fn handler_api_v1_bgp_asn_v4_json(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let address = if let Some(addr) = params.get("asn") {
+        addr
+    } else {
+        return make_error_response("Missing asn parameter").into_response();
+    };
+
+    let target = if let Ok(target) = u32::from_str(&address) {
+        target
+    } else {
+        return make_error_response("Malformed asn").into_response();
+    };
+
+    let command = if let Some(vrf_name) = get_vrf_name() {
+        format!("sh bgp vrf {vrf_name} ipv4 unicast regexp _{target}$ json")
+    } else {
+        format!("sh bgp ipv4 unicast regexp _{target}$ json")
+    };
+
+    let output_v4 = process::Command::new("vtysh")
+        .arg("-c")
+        .arg(&command)
+        .output()
+        .await;
+
+    let res_v4 = if let Ok(output) = output_v4 {
+        String::from_utf8_lossy(&output.stdout).to_string()
+    } else {
+        return make_error_response("Failed to execute sh bgp").into_response();
+    };
+
+    make_json_response(&res_v4).into_response()
+}
+
+async fn handler_api_v1_bgp_asn_v6_json(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let address = if let Some(addr) = params.get("asn") {
+        addr
+    } else {
+        return make_error_response("Missing asn parameter").into_response();
+    };
+
+    let target = if let Ok(target) = u32::from_str(&address) {
+        target
+    } else {
+        return make_error_response("Malformed asn").into_response();
+    };
+
+    let command = if let Some(vrf_name) = get_vrf_name() {
+        format!("sh bgp vrf {vrf_name} ipv6 unicast regexp _{target}$ json")
+    } else {
+        format!("sh bgp ipv6 unicast regexp _{target}$ json")
+    };
+
+    let output_v6 = process::Command::new("vtysh")
+        .arg("-c")
+        .arg(&command)
+        .output()
+        .await;
+
+    let res_v6 = if let Ok(output) = output_v6 {
+        String::from_utf8_lossy(&output.stdout).to_string()
+    } else {
+        return make_error_response("Failed to execute sh bgp").into_response();
+    };
+
+    make_json_response(&res_v6).into_response()
+}
+
 async fn handler_api_v1_as_info(
     State(state): State<AppState>,
     Query(params): Query<HashMap<String, String>>,
@@ -407,6 +479,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/mtr", get(handler_api_v1_mtr))
         .route("/api/v1/bgp", get(handler_api_v1_bgp))
         .route("/api/v1/bgp/json", get(handler_api_v1_bgp_json))
+        .route("/api/v1/bgp/asn/v4/json", get(handler_api_v1_bgp_asn_v4_json))
+        .route("/api/v1/bgp/asn/v6/json", get(handler_api_v1_bgp_asn_v6_json))
         .route("/api/v1/as_info", get(handler_api_v1_as_info))
 
         // 404 page
