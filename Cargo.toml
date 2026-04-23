@@ -20,5 +20,5 @@ tower-http = { version = "0.4", features = ["cors"] }
 regex = "1.11"
 menhera-inet = "0.1.1"
 parking_lot = "0.12"
-reqwest = "0.12"
+reqwest = "0.13"
 openssl-sys = { version = "0.9", features = ["vendored"] }
