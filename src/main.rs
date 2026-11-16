@@ -5,15 +5,14 @@ use std::str::FromStr;
 
 use tokio::process;
 
-use hyper::{Request, StatusCode};
+use hyper::StatusCode;
 use axum::{
     routing::get,
     Router,
-    Server,
     response::{IntoResponse, Response},
     Json,
     middleware::Next,
-    extract::Query,
+    extract::{Query, Request},
     extract::State,
 };
 
@@ -447,7 +446,7 @@ async fn handler_api_v1_as_info(
     make_error_response("AS number not found").into_response()
 }
 
-async fn add_global_headers<B>(req: Request<B>, next: Next<B>) -> Response {
+async fn add_global_headers(req: Request, next: Next) -> Response {
     let mut res = next.run(req).await;
     let headers = res.headers_mut();
     headers.append("content-security-policy", RESPONSE_HEADER_CSP.parse().unwrap());
@@ -548,9 +547,9 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // run server
-    let server = Server::bind(&addr).serve(app.into_make_service());
+    let listener = tokio::net::TcpListener::bind(addr).await?;
     log::info!("Listening on http://{}", &addr);
-    server.await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
